@@ -17,9 +17,22 @@
  *
  */
 
-// jefflee202511@gmail.com mod for test
 #include <stdint.h>
 #include <stdbool.h>
+
+
+
+#define reg_leds (*(volatile uint32_t*)0x03000000)
+#define reg_uart_clkdiv (*(volatile uint32_t*)0x02000004)
+#define reg_uart_data (*(volatile uint32_t*)0x02000008)
+
+
+
+#define CPU_FREQ_HZ 12000000
+
+
+// spi io 
+
 
 #ifdef ICEBREAKER
 #  define MEM_TOTAL 0x20000 /* 128 KB */
@@ -34,14 +47,18 @@
 extern uint32_t sram;
 
 #define reg_spictrl (*(volatile uint32_t*)0x02000000)
-#define reg_uart_clkdiv (*(volatile uint32_t*)0x02000004)
-#define reg_uart_data (*(volatile uint32_t*)0x02000008)
-#define reg_leds (*(volatile uint32_t*)0x03000000)
 
-// --------------------------------------------------------
+
 
 extern uint32_t flashio_worker_begin;
 extern uint32_t flashio_worker_end;
+
+void putchar(char c);
+void print(const char *p);
+void print_hex(uint32_t v, int digits);
+void print_dec(uint32_t v);
+char getchar_prompt(char *prompt);
+
 
 void flashio(uint8_t *data, int len, uint8_t wrencmd)
 {
@@ -156,28 +173,8 @@ void enable_flash_crm()
 
 // --------------------------------------------------------
 
-void putchar(char c)
-{
-	if (c == '\n')
-		putchar('\r');
-	reg_uart_data = c;
-}
 
-void print(const char *p)
-{
-	while (*p)
-		putchar(*(p++));
-}
 
-void print_hex(uint32_t v, int digits)
-{
-	for (int i = 7; i >= 0; i--) {
-		char c = "0123456789abcdef"[(v >> (4*i)) & 15];
-		if (c == '0' && i >= digits) continue;
-		putchar(c);
-		digits = i;
-	}
-}
 
 void print_dec(uint32_t v)
 {
@@ -218,33 +215,6 @@ void print_dec(uint32_t v)
 	else putchar('0');
 }
 
-char getchar_prompt(char *prompt)
-{
-	int32_t c = -1;
-
-	uint32_t cycles_begin, cycles_now, cycles;
-	__asm__ volatile ("rdcycle %0" : "=r"(cycles_begin));
-
-	reg_leds = ~0;
-
-	if (prompt)
-		print(prompt);
-
-	while (c == -1) {
-		__asm__ volatile ("rdcycle %0" : "=r"(cycles_now));
-		cycles = cycles_now - cycles_begin;
-		if (cycles > 12000000) {
-			if (prompt)
-				print(prompt);
-			cycles_begin = cycles_now;
-			reg_leds = ~reg_leds;
-		}
-		c = reg_uart_data;
-	}
-
-	reg_leds = 0;
-	return c;
-}
 
 char getchar()
 {
@@ -662,27 +632,108 @@ void cmd_echo()
 		putchar(c);
 }
 
-// --------------------------------------------------------
+//////////////////////end of demo funcs//////////////////////////
 
-void main()
+
+static void delay_ms(uint32_t ms)
 {
-	reg_leds = 31;
-	reg_uart_clkdiv = 104;
-	print("Booting..\n");
+    uint32_t start;
+    uint32_t now;
+    uint32_t cycles = (CPU_FREQ_HZ / 1000) * ms;
 
-	reg_leds = 63;
-	set_flash_qspi_flag();
+    __asm__ volatile ("rdcycle %0" : "=r"(start));
 
-	reg_leds = 127;
-	while (getchar_prompt("Press ENTER to continue..\n") != '\r') { /* wait */ }
+    do {
+        __asm__ volatile ("rdcycle %0" : "=r"(now));
+    } while ((now - start) < cycles);
+}
 
-	print("\n");
-	print("  ____  _          ____         ____\n");
-	print(" |  _ \\(_) ___ ___/ ___|  ___  / ___|\n");
-	print(" | |_) | |/ __/ _ \\___ \\ / _ \\| |\n");
-	print(" |  __/| | (_| (_) |__) | (_) | |___\n");
-	print(" |_|   |_|\\___\\___/____/ \\___/ \\____|\n");
-	print("\n");
+
+void putchar(char c)
+{
+        if (c == '\n')
+                putchar('\r');
+        reg_uart_data = c;
+}
+
+void print(const char *p)
+{
+        while (*p)
+                putchar(*(p++));
+}
+
+void print_hex(uint32_t v, int digits)
+{
+        for (int i = 7; i >= 0; i--) {
+                char c = "0123456789abcdef"[(v >> (4*i)) & 15];
+                if (c == '0' && i >= digits) continue;
+                putchar(c);
+                digits = i;
+        }
+}
+
+
+char getchar_prompt(char *prompt)
+{
+        int32_t c = -1;
+
+        uint32_t cycles_begin, cycles_now, cycles;
+        __asm__ volatile ("rdcycle %0" : "=r"(cycles_begin));
+
+        reg_leds = ~0;
+
+        if (prompt)
+                print(prompt);
+
+        while (c == -1) {
+                __asm__ volatile ("rdcycle %0" : "=r"(cycles_now));
+                cycles = cycles_now - cycles_begin;
+                if (cycles > 12000000) {
+                        if (prompt)
+                                print(prompt);
+                        cycles_begin = cycles_now;
+                        reg_leds = ~reg_leds;
+                }
+                c = reg_uart_data;
+        }
+
+        reg_leds = 0;
+        return c;
+}
+
+
+
+int main(void)
+{
+
+        reg_leds = 31;
+        reg_uart_clkdiv = 104;
+        print("Booting..\n");
+
+        reg_leds = 63;
+        //set_flash_qspi_flag();
+
+        reg_leds = 127;
+        while (getchar_prompt("Press - ENTER to continue......\n") != '\r') { /* wait */ }
+
+        print("\n");
+        print("  ____  _          ____         ____\n");
+        print(" |  _ \\(_) ___ ___/ ___|  ___  / ___|\n");
+        print(" | |_) | |/ __/ _ \\___ \\ / _ \\| |\n");
+        print(" |  __/| | (_| (_) |__) | (_) | |___\n");
+        print(" |_|   |_|\\___\\___/____/ \\___/ \\____|\n");
+        print("\n");
+
+
+
+
+
+	//while (1)
+        {
+	    print("test print\n");
+	    delay_ms(500);
+
+	}
 
 	print("Total memory: ");
 	print_dec(MEM_TOTAL / 1024);
@@ -701,13 +752,13 @@ void main()
 
 		print("Select an action:\n");
 		print("\n");
-		print("   [1] Read SPI Flash ID\n");
-		print("   [2] Read SPI Config Regs\n");
-		print("   [3] Switch to default mode\n");
-		print("   [4] Switch to Dual I/O mode\n");
-		print("   [5] Switch to Quad I/O mode\n");
-		print("   [6] Switch to Quad DDR mode\n");
-		print("   [7] Toggle continuous read mode\n");
+		//print("   [1] Read SPI Flash ID\n");
+		//print("   [2] Read SPI Config Regs\n");
+		//print("   [3] Switch to default mode\n");
+		//print("   [4] Switch to Dual I/O mode\n");
+		//print("   [5] Switch to Quad I/O mode\n");
+		//print("   [6] Switch to Quad DDR mode\n");
+		//print("   [7] Toggle continuous read mode\n");
 		print("   [9] Run simplistic benchmark\n");
 		print("   [0] Benchmark all configs\n");
 		print("   [M] Run Memtest\n");
@@ -768,4 +819,10 @@ void main()
 			break;
 		}
 	}
+
+		 
+
+
+
+    return 0;
 }
